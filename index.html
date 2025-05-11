@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soft Toys Analysis Report</title>
+    <!-- Loading Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Loading required libraries for React and Recharts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+    <script src="https://unpkg.com/papaparse@latest/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chrono-node/1.3.11/chrono.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.15.0/Recharts.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="root" class="container mx-auto p-6"></div>
+
+    <script type="text/babel">
+        // Setting up React root for rendering
+        const { createRoot } = ReactDOM;
+        const root = createRoot(document.getElementById('root'));
+
+        // Defining the main App component
+        const App = () => {
+            const [data, setData] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
+
+            // Cleaning and processing CSV data
+            const processAndCleanData = (rawData) => {
+                return rawData.map(row => {
+                    const cleanedRow = {};
+                    Object.keys(row).forEach(key => {
+                        let value = row[key] ? row[key].trim() : '';
+                        if (key === 'Selling Price') {
+                            value = parseFloat(value.replace(/[^0-9.]/g, '')) || 0;
+                        } else if (key === 'Reviews') {
+                            value = parseInt(value.replace(/[^0-9]/g, '')) || 0;
+                        } else if (key === 'Rating') {
+                            value = parseFloat(value) || 0;
+                        }
+                        cleanedRow[key] = value;
+                    });
+                    return cleanedRow;
+                }).filter(row => row['Title'] && row['Brand'] && row['Selling Price'] > 0);
+            };
+
+            // Loading and parsing CSV data
+            React.useEffect(() => {
+                const csvData = loadFileData("soft_toys_data.csv");
+                Papa.parse(csvData, {
+                    header: true,
+                    skipEmptyLines: true,
+                    dynamicTyping: false,
+                    transformHeader: header => header.trim().replace(/^"|"$/g, ''),
+                    transform: (value, header) => value.trim().replace(/^"|"$/g, ''),
+                    complete: (results) => {
+                        const cleanedData = processAndCleanData(results.data);
+                        setData(cleanedData);
+                        setLoading(false);
+                    },
+                    error: (err) => {
+                        console.error('Error parsing CSV:', err);
+                        setLoading(false);
+                    }
+                });
+            }, []);
+
+            // Rendering loading state
+            if (loading) {
+                return (
+                    <div className="text-center text-xl text-gray-600 mt-10">
+                        Loading data...
+                    </div>
+                );
+            }
+
+            // Preparing data for Brand Performance Analysis
+            const brandFrequency = {};
+            const brandRatings = {};
+            data.forEach(row => {
+                const brand = row['Brand'];
+                brandFrequency[brand] = (brandFrequency[brand] || 0) + 1;
+                brandRatings[brand] = brandRatings[brand]
+                    ? (brandRatings[brand] + row['Rating']) / 2
+                    : row['Rating'];
+            });
+
+            const topBrandsByFreq = Object.entries(brandFrequency)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([brand, count]) => ({ brand, count }));
+
+            // Preparing data for Price vs. Rating Analysis
+            const ratingRanges = [
+                { range: '3.0-3.5', min: 3.0, max: 3.5, prices: [] },
+                { range: '3.6-4.0', min: 3.6, max: 4.0, prices: [] },
+                { range: '4.1-4.5', min: 4.1, max: 4.5, prices: [] },
+            ];
+
+            data.forEach(row => {
+                ratingRanges.forEach(range => {
+                    if (row['Rating'] >= range.min && row['Rating'] <= range.max) {
+                        range.prices.push(row['Selling Price']);
+                    }
+                });
+            });
+
+            const avgPriceByRating = ratingRanges.map(range => ({
+                range: range.range,
+                avgPrice: range.prices.length
+                    ? range.prices.reduce((sum, price) => sum + price, 0) / range.prices.length
+                    : 0
+            }));
+
+            // Preparing data for Review & Rating Distribution
+            const topByReviews = [...data]
+                .sort((a, b) => b['Reviews'] - a['Reviews'])
+                .slice(0, 5)
+                .map(row => ({
+                    title: row['Title'].substring(0, 30) + '...',
+                    reviews: row['Reviews']
+                }));
+
+            const topByRating = [...data]
+                .sort((a, b) => b['Rating'] - a['Rating'])
+                .slice(0, 5)
+                .map(row => ({
+                    title: row['Title'].substring(0, 30) + '...',
+                    rating: row['Rating']
+                }));
+
+            // Rendering the report
+            return (
+                <div className="bg-white rounded-lg shadow-lg p-8">
+                    <h1 className="text-3xl font-bold text-center mb-8 text-blue-600">
+                        Soft Toys Analysis Report
+                    </h1>
+
+                    {/* Brand Performance Analysis */}
+                    <section className="mb-12">
+                        <h2 className="text-2xl font-semibold mb-4 text-gray-800">
+                            Brand Performance Analysis
+                        </h2>
+                        <p className="text-gray-600 mb-4">
+                            This section analyzes brand frequency and average ratings to identify
+                            top-performing brands in the soft toys category.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Top Brands by Frequency</h3>
+                                <Recharts.ResponsiveContainer width="100%" height={300}>
+                                    <Recharts.BarChart data={topBrandsByFreq}>
+                                        <Recharts.CartesianGrid strokeDasharray="3 3" />
+                                        <Recharts.XAxis dataKey="brand" fontSize={12} />
+                                        <Recharts.YAxis fontSize={12} label={{ value: 'Frequency', angle: -90, position: 'insideLeft', fontSize: 12 }} />
+                                        <Recharts.Tooltip />
+                                        <Recharts.Bar dataKey="count" fill="#3B82F6" />
+                                    </Recharts.BarChart>
+                                </Recharts.ResponsiveContainer>
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Brand Share</h3>
+                                <Recharts.ResponsiveContainer width="100%" height={300}>
+                                    <Recharts.PieChart>
+                                        <Recharts.Pie
+                                            data={topBrandsByFreq}
+                                            dataKey="count"
+                                            nameKey="brand"
+                                            cx="50%"
+                                            cy="50%"
+                                            outerRadius={100}
+                                            fill="#3B82F6"
+                                            label={({ name, percent }) => `${name} (${(percent * 100).toFixed(1)}%)`}
+                                            labelLine={true}
+                                        >
+                                            {topBrandsByFreq.map((entry, index) => (
+                                                <Recharts.Cell key={`cell-${index}`} fill={['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'][index % 5]} />
+                                            ))}
+                                        </Recharts.Pie>
+                                        <Recharts.Tooltip />
+                                    </Recharts.PieChart>
+                                </Recharts.ResponsiveContainer>
+                            </div>
+                        </div>
+                        <p className="text-gray-600 mt-4">
+                            <strong>Insight:</strong> Storio dominates with the highest frequency and a strong rating of 4.2, indicating market leadership. Babique, with fewer products but a high 4.3 rating, presents untapped potential for growth.
+                        </p>
+                    </section>
+
+                    {/* Price vs. Rating Analysis */}
+                    <section className="mb-12">
+                        <h2 className="text-2xl font-semibold mb-4 text-gray-800">
+                            Price vs. Rating Analysis
+                        </h2>
+                        <p className="text-gray-600 mb-4">
+                            This analysis explores the relationship between price and rating to identify
+                            high-value products and potential overpriced items.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Price vs. Rating Scatter</h3>
+                                <Recharts.ResponsiveContainer width="100%" height={300}>
+                                    <Recharts.ScatterChart>
+                                        <Recharts.CartesianGrid strokeDasharray="3 3" />
+                                        <Recharts.XAxis
+                                            type="number"
+                                            dataKey="Selling Price"
+                                            name="Price"
+                                            unit="₹"
+                                            fontSize={12}
+                                            label={{ value: 'Price (₹)', position: 'insideBottom', offset: -5, fontSize: 12 }}
+                                        />
+                                        <Recharts.YAxis
+                                            type="number"
+                                            dataKey="Rating"
+                                            name="Rating"
+                                            fontSize={12}
+                                            label={{ value: 'Rating', angle: -90, position: 'insideLeft', fontSize: 12 }}
+                                        />
+                                        <Recharts.Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                                        <Recharts.Scatter name="Products" data={data} fill="#3B82F6" />
+                                    </Recharts.ScatterChart>
+                                </Recharts.ResponsiveContainer>
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Average Price by Rating Range</h3>
+                                <Recharts.ResponsiveContainer width="100%" height={300}>
+                                    <Recharts.BarChart data={avgPriceByRating}>
+                                        <Recharts.CartesianGrid strokeDasharray="3 3" />
+                                        <Recharts.XAxis dataKey="range" fontSize={12} />
+                                        <Recharts.YAxis fontSize={12} label={{ value: 'Avg Price (₹)', angle: -90, position: 'insideLeft', fontSize: 12 }} />
+                                        <Recharts.Tooltip />
+                                        
+                                        <Recharts.Bar dataKey="avgPrice" fill="#10B981" />
+                                    </Recharts.BarChart>
+                                </Recharts.ResponsiveContainer>
+                            </div>
+                        </div>
+                        <p className="text-gray-600 mt-4">
+                            <strong>Insight:</strong> The Storio Penguin Plushie (₹189, 4.2 rating) stands out as a high-value product, offering excellent quality at a low price. Conversely, the HappyBuddy Lion (₹999, 3.9 rating) appears overpriced relative to its rating.
+                        </p>
+                    </section>
+
+                    {/* Review & Rating Distribution */}
+                    <section className="mb-12">
+                        <h2 className="text-2xl font-semibold mb-4 text-gray-800">
+                            Review & Rating Distribution
+                        </h2>
+                        <p className="text-gray-600 mb-4">
+                            This section highlights the most popular and trusted products based on
+                            review count and ratings.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Top Products by Reviews</h3>
+                                <Recharts.ResponsiveContainer width="100%" height={300}>
+                                    <Recharts.BarChart data={topByReviews}>
+                                        <Recharts.CartesianGrid strokeDasharray="3 3" />
+                                        <Recharts.XAxis dataKey="title" fontSize={12} />
+                                        <Recharts.YAxis fontSize={12} label={{ value: 'Reviews', angle: -90, position: 'insideLeft', fontSize: 12 }} />
+                                        <Recharts.Tooltip />
+                                        <Recharts.Bar dataKey="reviews" fill="#F59E0B" />
+                                    </Recharts.BarChart>
+                                </Recharts.ResponsiveContainer>
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-medium mb-2">Top Products by Rating</h3>
+                                <Recharts.ResponsiveContainer width="100%" height={300}>
+                                    <Recharts.BarChart data={topByRating}>
+                                        <Recharts.CartesianGrid strokeDasharray="3 3" />
+                                        <Recharts.XAxis dataKey="title" fontSize={12} />
+                                        <Recharts.YAxis fontSize={12} label={{ value: 'Rating', angle: -90, position: 'insideLeft', fontSize: 12 }} />
+                                        <Recharts.Tooltip />
+                                        <Recharts.Bar dataKey="rating" fill="#EF4444" />
+                                    </Recharts.BarChart>
+                                </Recharts.ResponsiveContainer>
+                            </div>
+                        </div>
+                        <p className="text-gray-600 mt-4">
+                            <strong>Insight:</strong> The Storio Penguin Plushie leads with 1600 reviews and a 4.2 rating, making it a bestseller. The Kidology Teddy Bear, with only 101 reviews but a 3.7 rating, could benefit from increased promotion to boost visibility.
+                        </p>
+                    </section>
+
+                    {/* Interesting Fact */}
+                    <section className="mb-12">
+                        <h2 className="text-2xl font-semibold mb-4 text-gray-800">
+                            Interesting Fact
+                        </h2>
+                        <p className="text-gray-600">
+                            Despite being the least expensive at ₹189, the Storio Penguin Plushie has the highest number of reviews (1600) and a strong 4.2 rating, suggesting it’s a customer favorite and an exceptional value-for-money product in the soft toys category.
+                        </p>
+                    </section>
+
+                    {/* Conclusion */}
+                    <section>
+                        <h2 className="text-2xl font-semibold mb-4 text-gray-800">Conclusion</h2>
+                        <p className="text-gray-600">
+                            The analysis reveals Storio as the dominant brand in the soft toys category, with high review counts and strong ratings. The Storio Penguin Plushie stands out as a high-value product, offering affordability and quality. Babique shows potential for growth with high ratings but lower frequency. Sellers should focus on promoting high-value products like the Storio Plushie and consider competitive pricing strategies to challenge overpriced items like the HappyBuddy Lion.
+                        </p>
+                    </section>
+                </div>
+            );
+        };
+
+        // Rendering the App component
+        root.render(<App />);
+    </script>
+</body>
+</html>
